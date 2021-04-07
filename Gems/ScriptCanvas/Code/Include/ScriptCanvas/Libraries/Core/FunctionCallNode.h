@@ -23,7 +23,8 @@
 #include <ScriptCanvas/Core/SlotExecutionMap.h>
 #include <ScriptCanvas/Libraries/Core/FunctionDefinitionNode.h>
 #include <ScriptCanvas/Utils/VersioningUtils.h>
-#include <Include/ScriptCanvas/Libraries/Core/FunctionNode.generated.h>
+
+#include <Include/ScriptCanvas/Libraries/Core/FunctionCallNode.generated.h>
 
 namespace ScriptCanvas { class RuntimeComponent; }
 
@@ -40,7 +41,9 @@ namespace ScriptCanvas
     {
         namespace Core
         {
-            class FunctionNode
+            struct FunctionCallNodeCompareConfig;
+
+            class FunctionCallNode
                 : public Node
                 , AZ::Data::AssetBus::Handler
             {
@@ -56,14 +59,12 @@ namespace ScriptCanvas
 
             public:
 
-                SCRIPTCANVAS_NODE(FunctionNode);
+                SCRIPTCANVAS_NODE(FunctionCallNode);
 
-                FunctionNode();
-                ~FunctionNode() override;
+                FunctionCallNode();
+                ~FunctionCallNode() override;
 
                 void BuildNode();
-
-                void ConfigureNode(const AZ::Data::AssetId& assetId);
 
                 SubgraphInterfaceAsset* GetAsset()  const;
 
@@ -71,10 +72,11 @@ namespace ScriptCanvas
 
                 const AZStd::string& GetName() const;
 
-                void Initialize(AZ::Data::AssetId assetId);
+                void Initialize(AZ::Data::AssetId assetId, const ScriptCanvas::Grammar::FunctionSourceId& sourceId);
 
-                // NodeVersioning
                 bool IsOutOfDate(const VersionData& graphVersion) const override;
+
+                bool IsOutOfDate(const FunctionCallNodeCompareConfig& config) const;
 
                 UpdateResult OnUpdateNode() override;
 
@@ -83,7 +85,7 @@ namespace ScriptCanvas
 
                 //////////////////////////////////////////////////////////////////////////
                 // Translation
-                bool IsSupportedByNewBackend() const override { return true; }
+                
 
                 AZ::Outcome<DependencyReport, void> GetDependencies() const override;
 
@@ -97,6 +99,8 @@ namespace ScriptCanvas
 
                 const Grammar::SubgraphInterface* GetSubgraphInterface() const override;
 
+                bool IsEntryPoint() const override;
+
                 bool IsNodeableNode() const override;
 
                 bool IsPure() const;
@@ -105,13 +109,28 @@ namespace ScriptCanvas
                 //////////////////////////////////////////////////////////////////////////
 
             protected:
+                SlotExecution::In AddAllSlots(const Grammar::In& in, int& slotOffset, const SlotExecution::Map& previousMap);
+                SlotExecution::Out AddAllSlots(const Grammar::In& in, const Grammar::Out& out, int& slotOffset, const SlotExecution::Map& previousMap);
+                SlotExecution::Out AddAllSlots(const Grammar::Out& latent, int& slotOffset, const SlotExecution::Map& previousMap);
                 SlotExecution::In AddExecutionInSlotFromInterface(const Grammar::In& in, int slotOffset, SlotId previousSlotId);
                 SlotExecution::Out AddExecutionOutSlotFromInterface(const Grammar::In& in, const Grammar::Out& out, int slotOffset, SlotId previousSlotId);
                 SlotExecution::Out AddExecutionLatentOutSlotFromInterface(const Grammar::Out& latent, int slotOffset, SlotId previousSlotId);
-                SlotExecution::Inputs AddDataInputSlotFromInterface(const Grammar::Inputs& inputs, const Grammar::FunctionSourceId& inSourceId, const AZStd::string& displayGroup, const SlotExecution::Map& previousMap, int& slotOffset);
-                SlotExecution::Outputs AddDataOutputSlotFromInterface(const Grammar::Outputs& outputs, const AZStd::string& displayGroup, const SlotExecution::Map& previousMap, int& slotOffset);
+                SlotExecution::Inputs AddDataInputSlotsFromInterface(const Grammar::Inputs& inputs, const Grammar::FunctionSourceId& inSourceId, const AZStd::string& displayGroup, const SlotExecution::Map& previousMap, int& slotOffset);
+                SlotExecution::Outputs AddDataOutputSlotsFromInterface(const Grammar::Outputs& outputs, const AZStd::string& displayGroup, const SlotExecution::Map& previousMap, int& slotOffset);
 
-                void BuildNodeFromSubgraphInterface(const AZ::Data::Asset<ScriptCanvas::SubgraphInterfaceAsset>& runtimeAsset, const SlotExecution::Map& previousMap);
+                void BuildNodeFromSubgraphInterface
+                    ( const AZ::Data::Asset<ScriptCanvas::SubgraphInterfaceAsset>& runtimeAsset
+                    , const ScriptCanvas::Grammar::FunctionSourceId& sourceId
+                    , const SlotExecution::Map& previousMap);
+
+                void BuildUserFunctionCallNode
+                    ( const Grammar::SubgraphInterface& subgraphInterface
+                    , const ScriptCanvas::Grammar::FunctionSourceId& sourceId
+                    , const SlotExecution::Map& previousMap);
+
+                void BuildUserNodeableNode
+                    ( const Grammar::SubgraphInterface& subgraphInterface
+                    , const SlotExecution::Map& previousMap);
 
                 void OnInit() override;
 
@@ -121,6 +140,7 @@ namespace ScriptCanvas
 
                 AZStd::string m_prettyName;
 
+                Grammar::FunctionSourceId m_sourceId;
                 AZ::Data::Asset<SubgraphInterfaceAsset> m_asset;
                 SlotExecution::Map m_slotExecutionMap;
                 Grammar::SubgraphInterface m_slotExecutionMapSourceInterface;

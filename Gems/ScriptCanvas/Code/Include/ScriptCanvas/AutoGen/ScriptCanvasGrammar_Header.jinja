@@ -8,43 +8,84 @@ or, if provided, by the license below or the license accompanying this file. Do 
 remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #}
+
+{% import 'ScriptCanvas_Macros.jinja' as macros %}
+
 #pragma once
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// This code was produced with AzAutoGen, any modifications made will not be preserved.
+// If you need to modify this code see:
+//
+// Gems\ScriptCanvas\Code\Include\ScriptCanvas\AutoGen\ScriptCanvasNode_Header.jinja
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include <ScriptCanvas/Core/Datum.h>
 #include <ScriptCanvas/Core/Node.h>
 
 {% for xml in dataFiles %}
 {%     for Class in xml.iter('Class') %}
+
+{# Any user-provided includes #}
 {%         for Include in Class.iter('Include') %}
 #include <{{ Include.attrib['File'] }}>
 {%         endfor %}
+
+{# Class Attributes #}
+{# ----------------------------------------------------------------------------------------- #}
+
+{% set attribute_Namespace = undefined %}
+{%- if Class.attrib['Namespace'] is defined %}
+{%      if Class.attrib['Namespace'] != "None" %}
+{%          set attribute_Namespace = Class.attrib['Namespace'] %}
+{%      endif %}
+{% endif %}
+
+{% if attribute_Namespace is defined %}
+namespace {{attribute_Namespace}}
+{
+{% endif %}
+
+{% set className = Class.attrib['Name'] %}
+{% set baseClass = Class.attrib['Base'] %}
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////
-//// {{ Class.attrib['Name'] }}
+//// {{ className }}
 ////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+{% set classUuid = Class.attrib['Uuid'] %}
+{% if classUuid is not defined %}
+{% set classUuid = className|createHashGuid %}
+{% endif %}
+
+{% set deprecationUuid = Class.attrib['DeprecationUUID'] %}
+
 // The following will be injected directly into the source header file for which AzCodeGenerator is being run.
 // You must #include the generated header into the source header
-#define SCRIPTCANVAS_NODE_{{ Class.attrib['Name'] }} \
+#define SCRIPTCANVAS_NODE_{{ className }} \
 public: \
-    AZ_COMPONENT({{ Class.attrib['Name'] }}, "{{ Class.attrib['Uuid'] }}"{% if Class.attrib['Base'] is defined %}, {{ Class.attrib['Base'] }}{% endif %}); \
+    AZ_COMPONENT({{ className }}, "{{ classUuid }}"{% if baseClass is defined %}, {{ baseClass }}{% endif %}); \
     static void Reflect(AZ::ReflectContext* reflection); \
     void ConfigureSlots() override; \
     bool RequiresDynamicSlotOrdering() const override; \
     bool IsDeprecated() const override; \
+{% if deprecationUuid is defined %}NodeConfiguration GetReplacementNodeConfiguration() const override; \ {% endif %}
     using Node::FindDatum; \
-{% if Class.attrib['GraphEntryPoint'] is defined %}    bool IsEntryPoint() const override { return true; } \
+{% if Class.attrib['GraphEntryPoint'] is defined %}    bool IsEntryPoint() const override { return {%if Class.attrib['GraphEntryPoint'] == True %}true{%else%}false{%endif%}; } \
 {% endif %}
 public: \
-    friend struct ::{{ Class.attrib['Name'] | replace(' ','') }}Property;
+    friend struct ::{{ className | replace(' ','') }}Property;
 
 // Helpers for easily accessing properties and slots
-struct {{ Class.attrib['Name'] | replace(' ','') }}Property
+struct {{ className | replace(' ','') }}Property
 {
-{%         for Property in Class.iter('Out') %}
+{% for Property in Class.iter('Out') %}
 {% if Property.attrib['Description'] is defined %}    // {{ Property.attrib['Description'] }}{% endif %}
 
     static ScriptCanvas::SlotId Get{{ Property.attrib['Name'] | replace(' ','') }}SlotId(const ScriptCanvas::Node* owner)
@@ -117,6 +158,13 @@ struct {{ Class.attrib['Name'] | replace(' ','') }}Property
 
 {%         endfor %}
 };
+
+{% if attribute_Namespace is defined %}
+}
+{% endif %}
+
+{{ macros.ReportErrors() }}
+
 
 {%     endfor %}
 {% endfor %}

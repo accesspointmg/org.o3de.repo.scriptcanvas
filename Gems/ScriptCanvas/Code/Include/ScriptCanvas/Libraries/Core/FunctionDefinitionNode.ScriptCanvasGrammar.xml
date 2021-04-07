@@ -11,7 +11,8 @@
            Version="1"
            EditAttributes="AZ::Script::Attributes::ExcludeFrom@AZ::Script::Attributes::ExcludeFlags::All"
            GeneratePropertyFriend="True"
+           GraphEntryPoint="True"
            Description="Represents either an execution entry or exit node.">
-        <SerializedProperty Name="m_externalConnectionType" />
+        <SerializedProperty Name="m_isExecutionEntry" />
     </Class>
 </ScriptCanvas>
