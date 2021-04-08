@@ -10,7 +10,7 @@
 *
 */
 
-#include "FunctionNode.h"
+#include "FunctionCallNode.h"
 
 #include <AzCore/Asset/AssetManager.h>
 #include <ScriptCanvas/Asset/RuntimeAsset.h>
@@ -27,6 +27,9 @@
 #include <ScriptCanvas/Variable/VariableData.h>
 #include <ScriptEvents/ScriptEventsAsset.h>
 #include <ScriptEvents/ScriptEventsBus.h>
+#include <ScriptCanvas/Core/SlotConfigurations.h>
+
+#include "FunctionCallNodeIsOutOfDate.h"
 
 namespace ScriptCanvas
 {
@@ -35,19 +38,103 @@ namespace ScriptCanvas
         namespace Core
         {
             /////////////////
-            // FunctionNode
+            // FunctionCallNode
             /////////////////
 
-            FunctionNode::FunctionNode() 
-                : m_asset(AZ::Data::AssetLoadBehavior::QueueLoad)
+            FunctionCallNode::FunctionCallNode() 
+                : m_asset(AZ::Data::AssetLoadBehavior::NoLoad)
             {}
 
-            FunctionNode::~FunctionNode()
+            FunctionCallNode::~FunctionCallNode()
             {
                 AZ::Data::AssetBus::Handler::BusDisconnect();
             }
 
-            SlotExecution::In FunctionNode::AddExecutionInSlotFromInterface(const Grammar::In& in, int slotOffset, SlotId previousSlotId)
+
+            SlotExecution::In FunctionCallNode::AddAllSlots(const Grammar::In& interfaceIn, int& slotOffset, const SlotExecution::Map& previousMap)
+            {
+                SlotExecution::In slotMapIn = AddExecutionInSlotFromInterface(interfaceIn, slotOffset, previousMap.FindInSlotIdBySource(interfaceIn.sourceID));
+                ++slotOffset;
+                if (!slotMapIn.slotId.IsValid())
+                {
+                    AZ_Error("ScriptCanvas", false, "Failed to add Execution In slot from sub graph interface");
+                }
+
+                slotMapIn.inputs = AddDataInputSlotsFromInterface(interfaceIn.inputs, interfaceIn.sourceID, interfaceIn.displayName, previousMap, slotOffset);
+                for (auto& input : slotMapIn.inputs)
+                {
+                    if (!input.slotId.IsValid())
+                    {
+                        AZ_Error("ScriptCanvas", false, "Failed to add Input slot from sub graph interface");
+                        break;;
+                    }
+                }
+
+                for (auto& interfaceOut : interfaceIn.outs)
+                {
+                    slotMapIn.outs.push_back(AddAllSlots(interfaceIn, interfaceOut, slotOffset, previousMap));
+                }
+
+                return slotMapIn;
+            }
+
+            SlotExecution::Out FunctionCallNode::AddAllSlots(const Grammar::In& interfaceIn, const Grammar::Out& interfaceOut, int& slotOffset, const SlotExecution::Map& previousMap)
+            {
+                SlotExecution::Out slotMapOut = AddExecutionOutSlotFromInterface(interfaceIn, interfaceOut, slotOffset, previousMap.FindOutSlotIdBySource(interfaceIn.sourceID, interfaceOut.sourceID));
+                ++slotOffset;
+
+                if (!slotMapOut.slotId.IsValid())
+                {
+                    AZ_Error("ScriptCanvas", false, "Failed to add Execution Out slot from sub graph interface");
+                }
+
+                slotMapOut.outputs = AddDataOutputSlotsFromInterface(interfaceOut.outputs, "", previousMap, slotOffset);
+                for (auto& output : slotMapOut.outputs)
+                {
+                    if (!output.slotId.IsValid())
+                    {
+                        AZ_Error("ScriptCanvas", false, "Failed to add Output slot from sub graph interface");
+                        break;
+                    }
+                }
+
+                return slotMapOut;
+            }
+
+            SlotExecution::Out FunctionCallNode::AddAllSlots(const Grammar::Out& interfaceLatent, int& slotOffset, const SlotExecution::Map& previousMap)
+            {
+                SlotExecution::Out slotMapLatentOut = AddExecutionLatentOutSlotFromInterface(interfaceLatent, slotOffset, previousMap.FindLatentSlotIdBySource(interfaceLatent.sourceID));
+                ++slotOffset;
+
+                if (!slotMapLatentOut.slotId.IsValid())
+                {
+                    AZ_Error("ScriptCanvas", false, "Failed to add Latent Out slot from sub graph interface");
+                }
+
+                slotMapLatentOut.returnValues.values = AddDataInputSlotsFromInterface(interfaceLatent.returnValues, interfaceLatent.sourceID, interfaceLatent.displayName, previousMap, slotOffset);
+                for (auto& input : slotMapLatentOut.returnValues.values)
+                {
+                    if (!input.slotId.IsValid())
+                    {
+                        AZ_Error("ScriptCanvas", false, "Failed to add Input slot from sub graph interface");
+                        break;
+                    }
+                }
+
+                slotMapLatentOut.outputs = AddDataOutputSlotsFromInterface(interfaceLatent.outputs, "", previousMap, slotOffset);
+                for (auto& output : slotMapLatentOut.outputs)
+                {
+                    if (!output.slotId.IsValid())
+                    {
+                        AZ_Error("ScriptCanvas", false, "Failed to add Output slot from sub graph interface");
+                        break;
+                    }
+                }
+
+                return slotMapLatentOut;
+            }
+
+            SlotExecution::In FunctionCallNode::AddExecutionInSlotFromInterface(const Grammar::In& in, int slotOffset, SlotId previousSlotId)
             {
                 ExecutionSlotConfiguration config;
                 config.m_name = in.displayName;
@@ -66,7 +153,7 @@ namespace ScriptCanvas
                 return slotMapIn;
             }
 
-            SlotExecution::Out FunctionNode::AddExecutionOutSlotFromInterface(const Grammar::In& in, const Grammar::Out& out, int slotOffset, SlotId previousSlotId)
+            SlotExecution::Out FunctionCallNode::AddExecutionOutSlotFromInterface(const Grammar::In& in, const Grammar::Out& out, int slotOffset, SlotId previousSlotId)
             {
                 ExecutionSlotConfiguration config;
                 config.m_name = out.displayName;
@@ -85,7 +172,7 @@ namespace ScriptCanvas
                 return slotMapOut;
             }
 
-            SlotExecution::Out FunctionNode::AddExecutionLatentOutSlotFromInterface(const Grammar::Out& latent, int slotOffset, SlotId previousSlotId)
+            SlotExecution::Out FunctionCallNode::AddExecutionLatentOutSlotFromInterface(const Grammar::Out& latent, int slotOffset, SlotId previousSlotId)
             {
                 ExecutionSlotConfiguration config;
                 config.m_name = latent.displayName;
@@ -104,7 +191,7 @@ namespace ScriptCanvas
                 return slotMapLatentOut;
             }
 
-            SlotExecution::Inputs FunctionNode::AddDataInputSlotFromInterface(const Grammar::Inputs& inputs, const Grammar::FunctionSourceId& inSourceId, const AZStd::string& displayGroup, const SlotExecution::Map& previousMap, int& slotOffset)
+            SlotExecution::Inputs FunctionCallNode::AddDataInputSlotsFromInterface(const Grammar::Inputs& inputs, const Grammar::FunctionSourceId& inSourceId, const AZStd::string& displayGroup, const SlotExecution::Map& previousMap, int& slotOffset)
             {
                 SlotExecution::Inputs slotMapInputs;
                 for (const auto& input : inputs)
@@ -122,7 +209,8 @@ namespace ScriptCanvas
                     }
 
                     SlotExecution::Input slotMapInput;
-                    slotMapInput.slotId = InsertSlot(slotOffset++, config, !previousSlotId.IsValid());
+                    slotMapInput.slotId = InsertSlot(slotOffset, config, !previousSlotId.IsValid());
+                    ++slotOffset;
                     slotMapInput.interfaceSourceId = input.sourceID;
                     slotMapInputs.push_back(slotMapInput);
                     if (!slotMapInput.slotId.IsValid())
@@ -133,7 +221,7 @@ namespace ScriptCanvas
                 return slotMapInputs;
             }
 
-            SlotExecution::Outputs FunctionNode::AddDataOutputSlotFromInterface(const Grammar::Outputs& outputs, const AZStd::string& displayGroup, const SlotExecution::Map& previousMap, int& slotOffset)
+            SlotExecution::Outputs FunctionCallNode::AddDataOutputSlotsFromInterface(const Grammar::Outputs& outputs, const AZStd::string& displayGroup, const SlotExecution::Map& previousMap, int& slotOffset)
             {
                 AZ_UNUSED(displayGroup);
 
@@ -151,7 +239,8 @@ namespace ScriptCanvas
                         config.m_slotId = previousSlotId;
                     }
 
-                    SlotExecution::Output outputSlotMap = InsertSlot(slotOffset++, config, !previousSlotId.IsValid());
+                    SlotExecution::Output outputSlotMap = InsertSlot(slotOffset, config, !previousSlotId.IsValid());
+                    ++slotOffset;
                     outputSlotMap.interfaceSourceId = output.sourceID;
                     slotMapOutputs.push_back(outputSlotMap);
                     if (!outputSlotMap.slotId.IsValid())
@@ -162,12 +251,107 @@ namespace ScriptCanvas
                 return slotMapOutputs;
             }
 
-            AZ::Outcome<Grammar::LexicalScope, void> FunctionNode::GetFunctionCallLexicalScope(const Slot* /*slot*/) const
+
+            void FunctionCallNode::BuildNode()
             {
+                AZ::Data::Asset<ScriptCanvas::SubgraphInterfaceAsset> asset = AZ::Data::AssetManager::Instance().GetAsset<ScriptCanvas::SubgraphInterfaceAsset>(m_asset.GetId(), AZ::Data::AssetLoadBehavior::PreLoad);
+                m_slotExecutionMapSourceInterface = Grammar::SubgraphInterface{};
+                m_slotExecutionMap = SlotExecution::Map{};
+                BuildNodeFromSubgraphInterface(asset, m_sourceId, m_slotExecutionMap);
+            }
+
+            void FunctionCallNode::BuildNodeFromSubgraphInterface
+                ( const AZ::Data::Asset<ScriptCanvas::SubgraphInterfaceAsset>& runtimeAsset
+                , const ScriptCanvas::Grammar::FunctionSourceId& sourceId
+                , const SlotExecution::Map& previousMap)
+            {
+                const Grammar::SubgraphInterface& subgraphInterface = runtimeAsset.Get()->m_runtimeData.m_interface;
+
+                if (subgraphInterface.IsUserNodeable() && Grammar::IsFunctionSourceIdNodeable(sourceId) && subgraphInterface.HasIn(sourceId))
+                {
+                    m_prettyName = runtimeAsset.Get()->m_runtimeData.m_name;
+                    BuildUserNodeableNode(subgraphInterface, previousMap);
+                }
+                else if ((!Grammar::IsFunctionSourceIdNodeable(sourceId)) && subgraphInterface.HasIn(sourceId))
+                {
+                    BuildUserFunctionCallNode(subgraphInterface, sourceId, previousMap);
+                }
+
+                m_slotExecutionMapSourceInterface = subgraphInterface;
+                m_asset = runtimeAsset;
+                m_asset.SetAutoLoadBehavior(AZ::Data::AssetLoadBehavior::NoLoad);
+                m_sourceId = sourceId;
+                SignalSlotsReordered();
+            }
+
+            void FunctionCallNode::BuildUserFunctionCallNode
+                ( const Grammar::SubgraphInterface& subgraphInterface
+                , const ScriptCanvas::Grammar::FunctionSourceId& sourceId
+                , const SlotExecution::Map& previousMap)
+            {
+                if (auto interfaceIn = subgraphInterface.FindIn(sourceId))
+                {
+                    int slotOffset = 0;
+                    auto in = AddAllSlots(*interfaceIn, slotOffset, previousMap);
+                    // #functions2 FunctionCallNode cleanup, naming: always have the two names...file name for the title bar, In name for the method/file name for the object
+                    m_prettyName = interfaceIn->displayName;
+
+                    SlotExecution::Ins slotMapIns;
+                    slotMapIns.push_back(in);
+                    SlotExecution::Outs slotMapLatents;
+                    m_slotExecutionMap = AZStd::move(SlotExecution::Map(AZStd::move(slotMapIns), AZStd::move(slotMapLatents)));
+                }
+                else
+                {
+                    AZ_Error("ScriptCanvas", false, "Failed to add Execution In slot from sub graph interface, source id was missing");
+                }
+            }
+
+            void FunctionCallNode::BuildUserNodeableNode(const Grammar::SubgraphInterface& subgraphInterface, const SlotExecution::Map& previousMap)
+            {
+                SlotExecution::Ins slotMapIns;
+                SlotExecution::Outs slotMapLatents;
+                int slotOffset = 0;
+
+                for (size_t indexIn = 0; indexIn < subgraphInterface.GetInCount(); ++indexIn)
+                {
+                    const auto& in = subgraphInterface.GetIn(indexIn);
+
+                    if (!in.isPure)
+                    {
+                        slotMapIns.push_back(AddAllSlots(subgraphInterface.GetIn(indexIn), slotOffset, previousMap));
+                    }
+                }
+
+                for (size_t indexLatent = 0; indexLatent < subgraphInterface.GetLatentOutCount(); ++indexLatent)
+                {
+                    slotMapLatents.push_back(AddAllSlots(subgraphInterface.GetLatentOut(indexLatent), slotOffset, previousMap));
+                }
+
+                // when returning variables: sort variables by source slot id, they are sorted in the slot map, so just take them from the slot map
+                m_slotExecutionMap = AZStd::move(SlotExecution::Map(AZStd::move(slotMapIns), AZStd::move(slotMapLatents)));
+            }
+
+            AZ::Outcome<Grammar::LexicalScope, void> FunctionCallNode::GetFunctionCallLexicalScope(const Slot* slot) const
+            {
+                if (slot)
+                {
+                    if (const auto slotIn = m_slotExecutionMap.GetIn(slot->GetId()))
+                    {
+                        if (slotIn->interfaceSourceId == m_sourceId)
+                        {
+                            if (const auto in = m_slotExecutionMapSourceInterface.FindIn(slotIn->interfaceSourceId))
+                            {
+                                return AZ::Success(m_slotExecutionMapSourceInterface.GetLexicalScope(*in));
+                            }
+                        }
+                    }
+                }
+
                 return AZ::Success(m_slotExecutionMapSourceInterface.GetLexicalScope());
             }
 
-            AZ::Outcome<AZStd::string, void> FunctionNode::GetFunctionCallName(const Slot* slot) const
+            AZ::Outcome<AZStd::string, void> FunctionCallNode::GetFunctionCallName(const Slot* slot) const
             {
                 if (auto in = m_slotExecutionMap.GetIn(slot->GetId()))
                 {
@@ -179,51 +363,54 @@ namespace ScriptCanvas
                 }
             }
 
-            AZStd::string FunctionNode::GetInterfaceName() const
+            AZStd::string FunctionCallNode::GetInterfaceName() const
             {
                 return m_slotExecutionMapSourceInterface.GetName();
             }
 
-            bool FunctionNode::IsNodeableNode() const
+            bool FunctionCallNode::IsEntryPoint() const
             {
-                return !IsPure();
+                return m_slotExecutionMapSourceInterface.IsActiveDefaultObject()
+                    || m_slotExecutionMapSourceInterface.IsLatent(); 
             }
 
-            bool FunctionNode::IsPure() const
+            bool FunctionCallNode::IsNodeableNode() const
             {
-                return m_slotExecutionMapSourceInterface.IsMarkedPure();
+                return m_slotExecutionMapSourceInterface.IsUserNodeable() && Grammar::IsFunctionSourceIdNodeable(m_sourceId) ;
             }
 
-            bool FunctionNode::IsSlotPure(const Slot* /*slot*/) const
+            bool FunctionCallNode::IsPure() const
             {
-                // \todo optimizations are possible based on treating the slots separately
-                return m_slotExecutionMapSourceInterface.IsMarkedPure();
+                auto inSlots = GetSlotsByType(CombinedSlotType::ExecutionIn);
+                return inSlots.size() == 1 && IsSlotPure(inSlots.front());
             }
 
-            void FunctionNode::OnInit()
+            bool FunctionCallNode::IsSlotPure(const Slot* slot) const
+            {
+                auto slotMapIn = slot ? m_slotExecutionMap.GetIn(slot->GetId()) : nullptr;
+                auto in = slotMapIn ? m_slotExecutionMapSourceInterface.FindIn(slotMapIn->interfaceSourceId) : nullptr;
+                return in && in->isPure;
+            }
+
+            void FunctionCallNode::OnInit()
             {
                 if (m_asset.GetId().IsValid())
                 {
-                    Initialize(m_asset.GetId());
+                    Initialize(m_asset.GetId(), m_sourceId);
                 }
             }
 
-            void FunctionNode::ConfigureNode(const AZ::Data::AssetId&)
-            {
-                PopulateNodeType();
-            }
-
-            SubgraphInterfaceAsset* FunctionNode::GetAsset() const
+            SubgraphInterfaceAsset* FunctionCallNode::GetAsset() const
             {
                 return m_asset.GetAs<SubgraphInterfaceAsset>();
             }
 
-            AZ::Data::AssetId FunctionNode::GetAssetId() const
+            AZ::Data::AssetId FunctionCallNode::GetAssetId() const
             {
                 return m_asset.GetId();
             }
 
-            AZ::Outcome<DependencyReport, void> FunctionNode::GetDependencies() const
+            AZ::Outcome<DependencyReport, void> FunctionCallNode::GetDependencies() const
             {
                 DependencyReport report;
                 report.userSubgraphs.insert(m_slotExecutionMapSourceInterface.GetNamespacePath());
@@ -231,154 +418,15 @@ namespace ScriptCanvas
                 return AZ::Success(AZStd::move(report));
             }
 
-            const AZStd::string& FunctionNode::GetName() const
+            const AZStd::string& FunctionCallNode::GetName() const
             {
                 return m_prettyName;
             }
 
-            void FunctionNode::BuildNode()
+            void FunctionCallNode::Initialize(AZ::Data::AssetId assetId, const ScriptCanvas::Grammar::FunctionSourceId& sourceId)
             {
-                AZ::Data::Asset<ScriptCanvas::SubgraphInterfaceAsset> asset = AZ::Data::AssetManager::Instance().GetAsset<ScriptCanvas::SubgraphInterfaceAsset>(m_asset.GetId(), AZ::Data::AssetLoadBehavior::PreLoad);
-                m_slotExecutionMapSourceInterface = Grammar::SubgraphInterface{};
-                m_slotExecutionMap = SlotExecution::Map{};
-                BuildNodeFromSubgraphInterface(asset, m_slotExecutionMap);
-            }
+                PopulateNodeType();
 
-            void FunctionNode::BuildNodeFromSubgraphInterface
-                ( const AZ::Data::Asset<ScriptCanvas::SubgraphInterfaceAsset>& runtimeAsset
-                , const SlotExecution::Map& previousMap)
-            {
-                // build the node here, from the asset topology, take the node/variable ordering from the function runtime data as a suggestion
-                // deal with updates and conversions after
-                const Grammar::SubgraphInterface& subgraphInterface = runtimeAsset.Get()->m_runtimeData.m_interface;
-                m_prettyName = runtimeAsset.Get()->m_runtimeData.m_name;
-
-                if (!subgraphInterface.IsAllInputOutputShared())
-                {
-                    AZ_Error("ScriptCanvas", false, "the current assumption is that there is no way to distinguish between the input/output of different nodelings");
-                    return;
-                }
-
-                // for now, all outputs are shared
-                Grammar::Outputs outputs;
-                bool sharedOutputInitialized = false;
-
-                SlotExecution::Ins slotMapIns;
-                SlotExecution::Outs slotMapLatents;
-
-                int slotOffset = 0;
-                
-                // add all ins->outs, in their display groups
-                for (size_t indexIn = 0; indexIn < subgraphInterface.GetInCount(); ++indexIn)
-                {
-                    const Grammar::In& interfaceIn = subgraphInterface.GetIn(indexIn);
-
-                    SlotExecution::In slotMapIn = AddExecutionInSlotFromInterface(interfaceIn, slotOffset++, previousMap.FindInSlotIdBySource(interfaceIn.sourceID));
-                    if (!slotMapIn.slotId.IsValid())
-                    {
-                        AZ_Error("ScriptCanvas", false, "Failed to add Execution In slot from sub graph interface");
-                        return;
-                    }
-                    slotMapIn.inputs = AddDataInputSlotFromInterface(interfaceIn.inputs, interfaceIn.sourceID, interfaceIn.displayName, previousMap, slotOffset);
-                    for (auto& input : slotMapIn.inputs)
-                    {
-                        if (!input.slotId.IsValid())
-                        {
-                            AZ_Error("ScriptCanvas", false, "Failed to add Input slot from sub graph interface");
-                            return;
-                        }
-                    }
-
-                    for (auto& interfaceOut : interfaceIn.outs)
-                    {
-                        SlotExecution::Out slotMapOut = AddExecutionOutSlotFromInterface(interfaceIn, interfaceOut, slotOffset++, previousMap.FindOutSlotIdBySource(interfaceIn.sourceID, interfaceOut.sourceID));
-                        if (!slotMapOut.slotId.IsValid())
-                        {
-                            AZ_Error("ScriptCanvas", false, "Failed to add Execution Out slot from sub graph interface");
-                            return;
-                        }
-                        if (!sharedOutputInitialized)
-                        {
-                            outputs = interfaceOut.outputs;
-                            sharedOutputInitialized = true;
-                        }
-
-                        slotMapIn.outs.push_back(slotMapOut);
-                    }
-
-                    slotMapIns.push_back(slotMapIn);
-                }
-
-                // add all latents in their display groups
-                for (size_t indexLatent = 0; indexLatent < subgraphInterface.GetLatentOutCount(); ++indexLatent)
-                {
-                    const Grammar::Out& interfaceLatent = subgraphInterface.GetLatentOut(indexLatent);
-
-                    SlotExecution::Out slotMapLatentOut = AddExecutionLatentOutSlotFromInterface(interfaceLatent, slotOffset++, previousMap.FindLatentSlotIdBySource(interfaceLatent.sourceID));
-                    if (!slotMapLatentOut.slotId.IsValid())
-                    {
-                        AZ_Error("ScriptCanvas", false, "Failed to add Latent Out slot from sub graph interface");
-                        return;
-                    }
-                    slotMapLatentOut.returnValues.values = AddDataInputSlotFromInterface(interfaceLatent.returnValues, interfaceLatent.sourceID, interfaceLatent.displayName, previousMap, slotOffset);
-                    for (auto& input : slotMapLatentOut.returnValues.values)
-                    {
-                        if (!input.slotId.IsValid())
-                        {
-                            AZ_Error("ScriptCanvas", false, "Failed to add Input slot from sub graph interface");
-                            return;
-                        }
-                    }
-
-                    if (!sharedOutputInitialized)
-                    {
-                        outputs = interfaceLatent.outputs;
-                        sharedOutputInitialized = true;
-                    }
-
-                    slotMapLatents.push_back(slotMapLatentOut);
-                }
-
-                // add all outputs one time, since they are currently all required to be part of all the signatures [\todo must fix] , in a variable display group
-                SlotExecution::Outputs slotMapOutputs = AddDataOutputSlotFromInterface(outputs, "", previousMap, slotOffset);
-                for (auto& output : slotMapOutputs)
-                {
-                    if (!output.slotId.IsValid())
-                    {
-                        AZ_Error("ScriptCanvas", false, "Failed to add Output slot from sub graph interface");
-                        return;
-                    }
-                }
-                if (!subgraphInterface.IsLatent())
-                {
-                    for (auto& slotMapIn : slotMapIns)
-                    {
-                        for (auto& slotMapOut : slotMapIn.outs)
-                        {
-                            slotMapOut.outputs = slotMapOutputs;
-                        }
-                    }
-                }
-                else
-                {
-                    for (auto& slotMapLatent : slotMapLatents)
-                    {
-                        slotMapLatent.outputs = slotMapOutputs;
-                    }
-                }
-                
-                // when returning variables: sort variables by source slot id, they are sorted in the slot map, so just take them from the slot map
-                m_slotExecutionMap = AZStd::move(SlotExecution::Map(AZStd::move(slotMapIns), AZStd::move(slotMapLatents)));
-                m_slotExecutionMapSourceInterface = subgraphInterface;
-                m_asset = runtimeAsset;
-                SignalSlotsReordered();
-            }
-
-            void FunctionNode::Initialize(AZ::Data::AssetId assetId)
-            {
-                ConfigureNode(assetId);
-
-                static bool blockingLoad = true;
                 // this is the only case where the subgraph id should not be modified
                 AZ::Data::AssetId interfaceAssetId(assetId.m_guid, AZ_CRC("SubgraphInterface", 0xdfe6dc72));
                 auto asset = AZ::Data::AssetManager::Instance().GetAsset<SubgraphInterfaceAsset>(interfaceAssetId, AZ::Data::AssetLoadBehavior::PreLoad);
@@ -388,29 +436,35 @@ namespace ScriptCanvas
                 {
                     // do not nuke the assetId in case an update will be attempted immediately after this call
                     m_asset = asset;
+                    m_asset.SetAutoLoadBehavior(AZ::Data::AssetLoadBehavior::NoLoad);
+                    m_sourceId = sourceId;
                 }
             }
 
-            bool FunctionNode::IsOutOfDate(const VersionData& graphVersion) const
+            bool FunctionCallNode::IsOutOfDate(const VersionData& graphVersion) const
+            {
+                if (graphVersion.grammarVersion < GrammarVersion::Current || graphVersion.runtimeVersion < RuntimeVersion::Current)
+                {
+                    return true;
+                }
+
+                FunctionCallNodeCompareConfig config;
+                return IsOutOfDate(config);
+            }
+
+            bool FunctionCallNode::IsOutOfDate(const FunctionCallNodeCompareConfig& config) const
             {
                 bool isUnitTestingInProgress = false;
                 ScriptCanvas::SystemRequestBus::BroadcastResult(isUnitTestingInProgress, &ScriptCanvas::SystemRequests::IsScriptUnitTestingInProgress);
-
                 if (isUnitTestingInProgress)
                 {
                     return false;
                 }
 
-                if (graphVersion.grammarVersion == GrammarVersion::Initial || graphVersion.runtimeVersion == RuntimeVersion::Initial)
-                {
-                    return true;
-                }
-
-                // #conversion_diagnostic
                 AZ::Data::AssetId interfaceAssetId(m_asset.GetId().m_guid, AZ_CRC("SubgraphInterface", 0xdfe6dc72));
                 if (interfaceAssetId != m_asset.GetId())
                 {
-                    AZ_Warning("ScriptCanvas", false, "FunctionNode %s wasn't saved out with the proper sub id", m_prettyName.data());
+                    AZ_Warning("ScriptCanvas", false, "FunctionCallNode %s wasn't saved out with the proper sub id", m_prettyName.data());
                 }
 
                 AZ::Data::Asset<SubgraphInterfaceAsset> asset = AZ::Data::AssetManager::Instance().GetAsset<SubgraphInterfaceAsset>(interfaceAssetId, AZ::Data::AssetLoadBehavior::PreLoad);
@@ -418,27 +472,22 @@ namespace ScriptCanvas
 
                 if (!asset || !asset->IsReady())
                 {
-                    AZ_Warning("ScriptCanvas", false, "FunctionNode %s failed to load source asset.", m_prettyName.data());
+                    AZ_Warning("ScriptCanvas", false, "FunctionCallNode %s failed to load source asset.", m_prettyName.data());
                     return true;
                 }
 
                 const Grammar::SubgraphInterface* latestAssetInterface = asset ? &asset.Get()->GetData().m_interface : nullptr;
-
                 if (!latestAssetInterface)
                 {
-                    AZ_Warning("ScriptCanvas", false, "FunctionNode %s failed to load latest interface from the source asset.", m_prettyName.data());
+                    AZ_Warning("ScriptCanvas", false, "FunctionCallNode %s failed to load latest interface from the source asset.", m_prettyName.data());
                     return true;
                 }
 
-                if (!(m_slotExecutionMapSourceInterface == *latestAssetInterface))
-                {
-                    return true;
-                }
-
-                return false;
+                IsFunctionCallOutOfDateConfig isOutOfDataConfig{ config, *this, m_slotExecutionMap, m_sourceId, m_slotExecutionMapSourceInterface, *latestAssetInterface };
+                return IsFunctionCallNodeOutOfDate(isOutOfDataConfig);
             }
 
-            UpdateResult FunctionNode::OnUpdateNode()
+            UpdateResult FunctionCallNode::OnUpdateNode()
             {
                 AZ::Data::AssetId interfaceAssetId(m_asset.GetId().m_guid, AZ_CRC("SubgraphInterface", 0xdfe6dc72));
                 AZ::Data::Asset<SubgraphInterfaceAsset> assetData = AZ::Data::AssetManager::Instance().GetAsset<SubgraphInterfaceAsset>(interfaceAssetId, AZ::Data::AssetLoadBehavior::PreLoad);
@@ -446,14 +495,22 @@ namespace ScriptCanvas
 
                 if (!assetData || !assetData->IsReady())
                 {
-                    AZ_Warning("ScriptCanvas", false, "FunctionNode %s failed to load source asset, likely removed.", m_prettyName.data());
+                    AZ_Warning("ScriptCanvas", false, "FunctionCallNode %s failed to load source asset, likely removed.", m_prettyName.data());
+                    this->AddNodeDisabledFlag(NodeDisabledFlag::ErrorInUpdate);
+                    return UpdateResult::DisableNode;
+                }
+
+                FunctionCallNodeCompareConfig config;
+                if (IsOutOfDate(config))
+                {
+                    AZ_Warning("ScriptCanvas", false, "FunctionCallNode %s's source public interface has changed", m_prettyName.data());
                     this->AddNodeDisabledFlag(NodeDisabledFlag::ErrorInUpdate);
                     return UpdateResult::DisableNode;
                 }
 
                 // connections will be removed when the version conversion is finalized after this function returns
                 const bool k_DoNotRemoveConnections = false;
-                const bool k_DoNotWarnOnMissingDataSlots = !m_slotExecutionMapSourceInterface.IsAllInputOutputShared();
+                const bool k_DoNotWarnOnMissingDataSlots = false;
 
                 ExecutionSlotMap executionSlotMap;
                 DataSlotMap dataSlotMap;
@@ -469,16 +526,19 @@ namespace ScriptCanvas
                     RemoveOutsFromSlotExecution(m_slotExecutionMap.GetLatents(), k_DoNotRemoveConnections, k_DoNotWarnOnMissingDataSlots);
                 }
 
-                BuildNodeFromSubgraphInterface(assetData, m_slotExecutionMap);
+                BuildNodeFromSubgraphInterface(assetData, m_sourceId, m_slotExecutionMap);
                 SanityCheckSlotsAndConnections(executionSlotMap, dataSlotMap);
 
                 this->RemoveNodeDisabledFlag(NodeDisabledFlag::ErrorInUpdate);
                 return UpdateResult::DirtyGraph;
             }
 
-            void FunctionNode::RemoveInsFromInterface(const Grammar::Ins& ins,
-                ExecutionSlotMap& executionSlotMap,
-                DataSlotMap& dataSlotMap, bool removeConnection, bool warnOnMissingSlot)
+            void FunctionCallNode::RemoveInsFromInterface
+                ( const Grammar::Ins& ins
+                , ExecutionSlotMap& executionSlotMap
+                , DataSlotMap& dataSlotMap
+                , bool removeConnection
+                , bool warnOnMissingSlot)
             {
                 for (auto& in : ins)
                 {
@@ -493,7 +553,7 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::RemoveInsFromSlotExecution(const SlotExecution::Ins& ins, bool removeConnection, bool warnOnMissingSlot)
+            void FunctionCallNode::RemoveInsFromSlotExecution(const SlotExecution::Ins& ins, bool removeConnection, bool warnOnMissingSlot)
             {
                 for (auto& in : ins)
                 {
@@ -504,8 +564,11 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::RemoveInputsFromInterface(const Grammar::Inputs& inputs,
-                DataSlotMap& dataSlotMap, bool removeConnection, bool warnOnMissingSlot)
+            void FunctionCallNode::RemoveInputsFromInterface
+                ( const Grammar::Inputs& inputs
+                , DataSlotMap& dataSlotMap
+                , bool removeConnection
+                , bool warnOnMissingSlot)
             {
                 for (auto& input : inputs)
                 {
@@ -528,7 +591,7 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::RemoveInputsFromSlotExecution(const SlotExecution::Inputs& inputs, bool removeConnection, bool warnOnMissingSlot)
+            void FunctionCallNode::RemoveInputsFromSlotExecution(const SlotExecution::Inputs& inputs, bool removeConnection, bool warnOnMissingSlot)
             {
                 for (auto& input : inputs)
                 {
@@ -536,7 +599,7 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::RemoveOutsFromInterface(const Grammar::Outs& outs, ExecutionSlotMap& executionSlotMap, DataSlotMap& dataSlotMap, bool removeConnection, bool warnOnMissingSlot)
+            void FunctionCallNode::RemoveOutsFromInterface(const Grammar::Outs& outs, ExecutionSlotMap& executionSlotMap, DataSlotMap& dataSlotMap, bool removeConnection, bool warnOnMissingSlot)
             {
                 for (auto& out : outs)
                 {
@@ -551,7 +614,7 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::RemoveOutsFromSlotExecution(const SlotExecution::Outs& outs, bool removeConnection, bool warnOnMissingSlot)
+            void FunctionCallNode::RemoveOutsFromSlotExecution(const SlotExecution::Outs& outs, bool removeConnection, bool warnOnMissingSlot)
             {
                 for (auto& out : outs)
                 {
@@ -562,7 +625,7 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::RemoveOutputsFromInterface(const Grammar::Outputs& outputs, DataSlotMap& dataSlotMap, bool removeConnection, bool warnOnMissingSlot)
+            void FunctionCallNode::RemoveOutputsFromInterface(const Grammar::Outputs& outputs, DataSlotMap& dataSlotMap, bool removeConnection, bool warnOnMissingSlot)
             {
                 for (auto& output : outputs)
                 {
@@ -585,7 +648,7 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::RemoveOutputsFromSlotExecution(const SlotExecution::Outputs& outputs, bool removeConnection, bool warnOnMissingSlot)
+            void FunctionCallNode::RemoveOutputsFromSlotExecution(const SlotExecution::Outputs& outputs, bool removeConnection, bool warnOnMissingSlot)
             {
                 for (auto& output : outputs)
                 {
@@ -593,7 +656,7 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::SanityCheckSlotsAndConnections(const ExecutionSlotMap& executionSlotMap, const DataSlotMap& dataSlotMap)
+            void FunctionCallNode::SanityCheckSlotsAndConnections(const ExecutionSlotMap& executionSlotMap, const DataSlotMap& dataSlotMap)
             {
                 auto graph = this->GetGraph();
                 if (graph)
@@ -617,7 +680,7 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::SanityCheckInSlotsAndConnections(const Graph& graph, const SlotExecution::Ins& ins,
+            void FunctionCallNode::SanityCheckInSlotsAndConnections(const Graph& graph, const SlotExecution::Ins& ins,
                 const ExecutionSlotMap& executionSlotMap,
                 const DataSlotMap& dataSlotMap,
                 ReplacementConnectionMap& connectionMap)
@@ -641,7 +704,7 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::SanityCheckInputSlotsAndConnections(const Graph& graph, const SlotExecution::Inputs& inputs,
+            void FunctionCallNode::SanityCheckInputSlotsAndConnections(const Graph& graph, const SlotExecution::Inputs& inputs,
                 const DataSlotMap& dataSlotMap,
                 ReplacementConnectionMap& connectionMap)
             {
@@ -662,7 +725,7 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::SanityCheckOutSlotsAndConnections(const Graph& graph, const SlotExecution::Outs& outs,
+            void FunctionCallNode::SanityCheckOutSlotsAndConnections(const Graph& graph, const SlotExecution::Outs& outs,
                 const ExecutionSlotMap& executionSlotMap,
                 const DataSlotMap& dataSlotMap,
                 ReplacementConnectionMap& connectionMap)
@@ -686,7 +749,7 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::SanityCheckOutputSlotsAndConnections(const Graph& graph, const SlotExecution::Outputs& outputs,
+            void FunctionCallNode::SanityCheckOutputSlotsAndConnections(const Graph& graph, const SlotExecution::Outputs& outputs,
                 const DataSlotMap& dataSlotMap,
                 ReplacementConnectionMap& connectionMap)
             {
@@ -707,17 +770,17 @@ namespace ScriptCanvas
                 }
             }
 
-            const SlotExecution::Map* FunctionNode::GetSlotExecutionMap() const
+            const SlotExecution::Map* FunctionCallNode::GetSlotExecutionMap() const
             {
                 return &m_slotExecutionMap;
             }
 
-            const Grammar::SubgraphInterface* FunctionNode::GetSubgraphInterface() const
+            const Grammar::SubgraphInterface* FunctionCallNode::GetSubgraphInterface() const
             {
                 return &m_slotExecutionMapSourceInterface;
             }
 
-            AZStd::string FunctionNode::GetUpdateString() const
+            AZStd::string FunctionCallNode::GetUpdateString() const
             {
                 if (m_asset)
                 {
@@ -729,11 +792,12 @@ namespace ScriptCanvas
                 }
             }
 
-            void FunctionNode::OnAssetReady(AZ::Data::Asset<AZ::Data::AssetData> asset)
+            void FunctionCallNode::OnAssetReady(AZ::Data::Asset<AZ::Data::AssetData> asset)
             {
                 AZ::Data::AssetId interfaceAssetId(m_asset.GetId().m_guid, AZ_CRC("SubgraphInterface", 0xdfe6dc72));
                 m_asset = asset;
                 AZ::Data::Asset<SubgraphInterfaceAsset> assetData = AZ::Data::AssetManager::Instance().GetAsset<SubgraphInterfaceAsset>(interfaceAssetId, AZ::Data::AssetLoadBehavior::PreLoad);
+                m_asset.SetAutoLoadBehavior(AZ::Data::AssetLoadBehavior::NoLoad);
 
                 if (!assetData)
                 {

@@ -2,8 +2,8 @@
 
 <ScriptCanvas Include="Include/ScriptCanvas/Internal/Nodes/StringFormatted.h" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <Class Name="StringFormatted"
-	       QualifiedName="ScriptCanvas::Nodes::Internal::StringFormatted"
-	       PreferredClassName="StringFormatted"
+           QualifiedName="ScriptCanvas::Nodes::Internal::StringFormatted"
+           PreferredClassName="StringFormatted"
            Uuid="{0B1577E0-339D-4573-93D1-6C311AD12A13}"
            Base="ScriptCanvas::Node"
            Category="Internal"
