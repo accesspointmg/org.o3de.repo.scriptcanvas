@@ -8,12 +8,13 @@
 
 #pragma once
 
-namespace AZ
-{
-    class ReflectContext;
-} // namespace AZ
+#include "Primitives.h"
+#include "PrimitivesExecution.h"
 
-namespace ScriptCanvas::SpawningLibrary
+namespace ScriptCanvas
 {
-    void Reflect(AZ::ReflectContext* reflection);
-} // namespace ScriptCanvas::SpawningLibrary
+    namespace Grammar
+    {
+        void MarkUserFunctionCallLocallyDefined(ExecutionTreePtr execution);
+    }
+}
